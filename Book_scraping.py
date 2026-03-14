@@ -6,7 +6,7 @@ import os
 from urllib.parse import quote_plus
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
-from sqlalchemy.exc import SQLAlchemyError
+
 
 # Load .env from script directory so it's found when run from anywhere
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -41,46 +41,29 @@ def transform(dataframe):
     return dataframe
 
 
-connection_url = (
-    f"postgresql://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}"
-)
-
-print(f"\nConnection URL (masked): postgresql://{username}:****@{host}:{port}/{database}")
+db_url = f"postgresql+psycopg2://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}"
 
 def load_to_postgres_db(dataframe: pd.DataFrame, connection_string: str, table_name: str) -> None:
     """Load a DataFrame into a PostgreSQL table."""
     try:
         engine = create_engine(connection_string)
-        # Test connection
-        with engine.connect() as conn:
-            print("✓ Database connection successful!")
         
-        # Load data
-        with engine.begin() as conn:
-            dataframe.to_sql(
-                table_name,
-                conn,
-                index=False,
-                if_exists="append",
-                method="multi",
-                chunksize=500,
+        dataframe.to_sql(
+            table_name,
+            con=engine,
+            if_exists="replace",
+            index=False
             )
+
         print(f"✓ Data loaded successfully to table '{table_name}'")
         engine.dispose()
-        
-    except SQLAlchemyError as e:
-        err = str(e.orig) if getattr(e, "orig", None) else str(e)
-        if "password authentication failed" in err.lower():
-            print("✗ Database error: Password authentication failed. Check that:")
-            print("  1. PASSWORD in .env matches the PostgreSQL password for user", username)
-            print("  2. PostgreSQL is running and accepting connections on", host, ":", port)
-        else:
-            print(f"✗ Database error: {e}")
-        raise
+
     except Exception as e:
         print(f"✗ Unexpected error: {e}")
         raise
 
 data = extarct(url,coulmns_in_dataframe)
 transformed_data = transform(data)
-load_to_postgres_db(transformed_data,connection_url,'books')
+load_to_postgres_db(transformed_data,db_url,'books')
+
+          
