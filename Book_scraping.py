@@ -16,20 +16,65 @@ password = (os.getenv("PASSWORD") or "").strip()
 host = (os.getenv("HOST") or "localhost").strip()
 port = (os.getenv("PORT") or "5432").strip()
 database = (os.getenv("DATABASE") or "").strip()
-url = 'https://books.toscrape.com/catalogue/category/books/fiction_10/index.html'
-coulmns_in_dataframe = ['Title','Price','rating','Availability']
 
-def extarct(url: str, table_attribus: list):
-    response = requests.get(url).text
-    data = BeautifulSoup(response,'html.parser')
-    dataframe = pd.DataFrame(columns = table_attribus);
-    books = data.select('article.product_pod')
-    for book in books:
-        title = book.h3.a['title'] # for tags use .tags but for sths inside tags use .tag['sth']
-        price = book.select_one('.price_color').text
-        rating = book.select_one('.star-rating')['class'][1]
-        avalaibility = book.select_one('.availability').text.strip()
-        dataframe.loc[len(dataframe)] = [title,price,rating,avalaibility]
+base_url = 'https://books.toscrape.com/catalogue/category/books/fiction_10/'
+coulmns_in_dataframe = ['Title','Price','Rating','Availability']
+
+def extarct(base_url:str, table_attribus: list,max_pages:int = None):
+    all_books = []
+    page =1
+    while True:
+        if page == 1:
+            url = f"{base_url}index.html"
+        else:
+            url = f"{base_url}page-{page}.html"
+        
+        print(f"Scraping page {page}: {url}")
+        
+        try:
+            response = requests.get(url)
+            if response.status_code == 404:
+                print(f"No more pages found. Stopped at page {page}")
+                break
+            
+            response.raise_for_status() 
+            
+            data = BeautifulSoup(response.text, 'html.parser')
+            books = data.select('article.product_pod')
+            
+            if not books:
+                print(f"No books found on page {page}. Stopping.")
+                break
+            
+            # Extract data from each book
+            for book in books:
+                title = book.h3.a['title']
+                price = book.select_one('.price_color').text
+                rating = book.select_one('.star-rating')['class'][1]
+                availability = book.select_one('.availability').text.strip()
+                
+                all_books.append({
+                    'Title': title,
+                    'Price': price,
+                    'Rating': rating,
+                    'Availability': availability
+                })
+            
+            print(f"  Found {len(books)} books on page {page}")
+            
+            # Check if we've hit the max_pages limit
+            if max_pages and page >= max_pages:
+                print(f"Reached maximum pages limit: {max_pages}")
+                break
+            
+            page += 1
+            
+        except requests.RequestException as e:
+            print(f"Error fetching page {page}: {e}")
+            break
+    
+    # Convert list of dictionaries to DataFrame (much more efficient than appending rows)
+    dataframe = pd.DataFrame(all_books, columns=table_attribus)
     return dataframe
 
 def transform(dataframe):
@@ -62,7 +107,7 @@ def load_to_postgres_db(dataframe: pd.DataFrame, connection_string: str, table_n
         print(f"✗ Unexpected error: {e}")
         raise
 
-data = extarct(url,coulmns_in_dataframe)
+data = extarct(base_url,coulmns_in_dataframe)
 transformed_data = transform(data)
 load_to_postgres_db(transformed_data,db_url,'books')
 
